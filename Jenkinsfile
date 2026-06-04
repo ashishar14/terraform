@@ -6,11 +6,11 @@ pipeline {
     }
 
     environment {
-        AWS_REGION      = 'ap-south-1'
-        TF_VERSION      = '1.9.5'
-        TF_WORKING_DIR  = '.'
-        TF_VAR_FILE     = 'terraform.tfvars'
-    }
+    AWS_REGION      = 'ap-south-1'
+    TF_VERSION      = '1.9.5'
+    TF_WORKING_DIR  = '.'
+    // TF_VAR_FILE removed — no tfvars file in repo
+}
 
     stages {
 
@@ -128,35 +128,34 @@ pipeline {
 }
 
         stage('Terraform Plan') {
-            steps {
-                echo '📋 Running Terraform plan...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform plan \
-                                -input=false \
-                                -out=tfplan \
-                                -var-file="${TF_VAR_FILE}" 2>&1 | tee plan_output.txt
-                            echo "✅ Plan saved to tfplan."
-                        '''
-                    }
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'plan_output.txt', allowEmptyArchive: true
-                }
+    steps {
+        echo '📋 Running Terraform plan...'
+        withCredentials([[
+            $class:            'AmazonWebServicesCredentialsBinding',
+            credentialsId:     'aws-credentials',
+            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+        ]]) {
+            dir("${TF_WORKING_DIR}") {
+                sh '''
+                    set -e
+                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                    export AWS_DEFAULT_REGION=$AWS_REGION
+                    terraform plan \
+                        -input=false \
+                        -out=tfplan 2>&1 | tee plan_output.txt
+                    echo "✅ Plan saved to tfplan."
+                '''
             }
         }
-
+    }
+    post {
+        always {
+            archiveArtifacts artifacts: 'plan_output.txt', allowEmptyArchive: true
+        }
+    }
+}
         stage('Manual Approval') {
             steps {
                 echo '⏸️ Pipeline paused. Waiting for approval...'
@@ -170,27 +169,27 @@ pipeline {
         }
 
         stage('Terraform Apply') {
-            steps {
-                echo '✅ Applying Terraform changes...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform apply -input=false -auto-approve tfplan
-                            echo "🎉 Terraform apply complete."
-                        '''
-                    }
-                }
+    steps {
+        echo '✅ Applying Terraform changes...'
+        withCredentials([[
+            $class:            'AmazonWebServicesCredentialsBinding',
+            credentialsId:     'aws-credentials',
+            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+        ]]) {
+            dir("${TF_WORKING_DIR}") {
+                sh '''
+                    set -e
+                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                    export AWS_DEFAULT_REGION=$AWS_REGION
+                    terraform apply -input=false -auto-approve tfplan
+                    echo "🎉 Terraform apply complete."
+                '''
             }
         }
     }
+}
 
     post {
         success { echo '🟢 Pipeline finished successfully.' }
