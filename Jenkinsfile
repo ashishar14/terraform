@@ -6,10 +6,11 @@ pipeline {
     }
 
     environment {
-        AWS_REGION      = 'ap-south-1'
-        TF_VERSION      = '1.9.5'
-        TF_WORKING_DIR  = '.'
-    }
+    AWS_REGION          = 'ap-south-1'
+    TF_VERSION          = '1.9.5'
+    TF_WORKING_DIR      = '.'
+    TF_PLUGIN_CACHE_DIR = '/var/lib/jenkins/.terraform.d/plugin-cache'
+}
 
     stages {
 
