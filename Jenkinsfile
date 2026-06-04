@@ -1,97 +1,47 @@
 pipeline {
     agent any
-
-    triggers {
-        githubPush()
     }
 
     environment {
-    AWS_REGION          = 'ap-south-1'
-    TF_VERSION          = '1.9.5'
-    TF_WORKING_DIR      = '.'
-    TF_PLUGIN_CACHE_DIR = '/var/lib/jenkins/.terraform.d/plugin-cache'
-}
+        AWS_DEFAULT_REGION = 'ap-south-1' 
+        TF_DIR = 'Terraform' 
+    }
 
     stages {
-
         stage('Git Checkout') {
             steps {
-                echo '📥 Checking out code...'
-                checkout scm
-                sh 'echo "Branch: $(git rev-parse --abbrev-ref HEAD)"'
-                sh 'echo "Commit: $(git rev-parse HEAD)"'
-            }
-        }
-
-        stage('AWS Authentication') {
-            steps {
-                echo '🔐 Authenticating with AWS...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    sh '''
-                        set -e
-                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                        export AWS_DEFAULT_REGION=$AWS_REGION
-                        aws sts get-caller-identity
-                        echo "✅ AWS authentication successful"
-                    '''
-                }
+                echo 'Pulling infrastructure configuration blueprints from SCM...'
+                git url: 'https://github.com/vikasrawatengg-engg/DevOps.git', branch: 'main'
             }
         }
 
         stage('Terraform Installation') {
             steps {
-                echo '⚙️ Checking Terraform installation...'
+                echo 'Verifying and installing Terraform tool binaries...'
                 sh '''
-                    if /usr/local/bin/terraform version 2>/dev/null | grep -q "v${TF_VERSION}"; then
-                        echo "✅ Terraform ${TF_VERSION} already installed. Skipping."
+                    if ! command -v terraform &> /dev/null; then
+                        echo "Terraform missing. Installing packages..."
+                        sudo dnf install -y yum-utils
+                        sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+                        sudo dnf install -y terraform
                     else
-                        echo "🔽 Installing Terraform ${TF_VERSION}..."
-                        if command -v apt-get > /dev/null 2>&1; then
-                            sudo apt-get update -y
-                            sudo apt-get install -y curl unzip
-                        elif command -v yum > /dev/null 2>&1; then
-                            sudo yum install -y curl unzip
-                        fi
-                        curl -fsSL \
-                            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
-                            -o /tmp/terraform.zip
-                        sudo unzip -o /tmp/terraform.zip -d /usr/local/bin/
-                        sudo chmod +x /usr/local/bin/terraform
-                        rm -f /tmp/terraform.zip
-                        echo "✅ Terraform installed."
+                        echo "Terraform is already available:"
+                        terraform version
                     fi
-                    echo "Version: $(terraform version | head -1)"
                 '''
             }
         }
 
         stage('Terraform Init') {
-            options {
-                timeout(time: 20, unit: 'MINUTES')
-            }
             steps {
-                echo '🚀 Initialising Terraform...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            set -e
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform init -input=false -upgrade
-                            echo "✅ Terraform init complete."
-                        '''
+                echo "Initializing backend inside directory: ${TF_DIR}..."
+                dir("${TF_DIR}") {
+                    // Added credential wrapping here so it can authenticate against your S3 bucket
+                    withCredentials([
+                        string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh 'terraform init'
                     }
                 }
             }
@@ -99,61 +49,34 @@ pipeline {
 
         stage('Terraform Plan') {
             steps {
-                echo '📋 Running Terraform plan...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            set -e
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform plan -input=false -out=tfplan
-                            terraform show -no-color tfplan > plan_output.txt
-                            echo "✅ Plan saved to tfplan."
-                        '''
-                        stash includes: 'tfplan', name: 'tfplan'
-                        archiveArtifacts artifacts: 'plan_output.txt', allowEmptyArchive: true
+                echo 'Generating declarative execution plan matrix...'
+                dir("${TF_DIR}") {
+                    withCredentials([
+                        string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh 'terraform plan -out=tfplan'
                     }
                 }
             }
         }
 
-        stage('Manual Approval') {
+        stage('Gate: Manual Gate Approval') {
             steps {
-                echo '⏸️ Pipeline paused. Waiting for approval...'
-                timeout(time: 30, unit: 'MINUTES') {
-                    input(
-                        message: 'Review the Terraform Plan output. Approve to apply changes to AWS.',
-                        ok: 'Approve & Apply'
-                    )
-                }
+                input message: '⚠️ Review the generated Terraform Plan. Do you approve deploying these changes to AWS?', 
+                      ok: 'Approve & Apply Changes'
             }
         }
 
         stage('Terraform Apply') {
             steps {
-                echo '✅ Applying Terraform changes...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        unstash 'tfplan'
-                        sh '''
-                            set -e
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform apply -input=false -auto-approve tfplan
-                            echo "🎉 Terraform apply complete."
-                        '''
+                echo 'Executing plan target blueprint modifications on AWS infrastructure...'
+                dir("${TF_DIR}") {
+                    withCredentials([
+                        string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh 'terraform apply -input=false tfplan'
                     }
                 }
             }
@@ -161,9 +84,11 @@ pipeline {
     }
 
     post {
-        success { echo '🟢 Pipeline finished successfully.' }
-        aborted { echo '🟡 Pipeline aborted — approval declined or timed out.' }
-        failure { echo '🔴 Pipeline failed. Check the logs above.' }
-        always  { cleanWs() }
+        always {
+            echo 'Cleaning up cached plan fragments...'
+            dir("${TF_DIR}") {
+                sh 'rm -f tfplan'
+            }
+        }
     }
 }
