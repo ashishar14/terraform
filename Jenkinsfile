@@ -71,28 +71,30 @@ pipeline {
         }
 
         stage('Terraform Init') {
-            steps {
-                echo '🚀 Initialising Terraform...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            set -e
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            rm -rf .terraform .terraform.lock.hcl
-                            terraform init -input=false
-                            echo "✅ Terraform init complete."
-                        '''
-                    }
-                }
+    options {
+        timeout(time: 20, unit: 'MINUTES')
+    }
+    steps {
+        echo '🚀 Initialising Terraform...'
+        withCredentials([[
+            $class:            'AmazonWebServicesCredentialsBinding',
+            credentialsId:     'aws-credentials',
+            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+        ]]) {
+            dir("${TF_WORKING_DIR}") {
+                sh '''
+                    set -e
+                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                    export AWS_DEFAULT_REGION=$AWS_REGION
+                    terraform init -input=false
+                    echo "✅ Terraform init complete."
+                '''
             }
         }
+    }
+}
 
         stage('Terraform Plan') {
             steps {
