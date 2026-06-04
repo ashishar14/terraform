@@ -70,7 +70,7 @@ pipeline {
             }
         }
 
-        stage('Terraform Init') {
+       // stage('Terraform Init') {
             options {
                 timeout(time: 20, unit: 'MINUTES')
             }
@@ -95,7 +95,7 @@ pipeline {
                 }
             }
         }
-
+\\
         stage('Terraform Plan') {
             steps {
                 echo '📋 Running Terraform plan...'
