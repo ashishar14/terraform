@@ -98,27 +98,34 @@ pipeline {
             }
         }
 
-        stage('Terraform Init') {
-            steps {
-                echo '🚀 Initialising Terraform...'
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform init -input=false
-                            echo "✅ Terraform init complete."
-                        '''
-                    }
-                }
+       stage('Terraform Init') {
+    options {
+        timeout(time: 15, unit: 'MINUTES')  // ← give it enough time to download
+    }
+    steps {
+        echo '🚀 Initialising Terraform...'
+        withCredentials([[
+            $class:            'AmazonWebServicesCredentialsBinding',
+            credentialsId:     'aws-credentials',
+            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+        ]]) {
+            dir("${TF_WORKING_DIR}") {
+                sh '''
+                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                    export AWS_DEFAULT_REGION=$AWS_REGION
+
+                    # clean any corrupted cache before init
+                    rm -rf .terraform .terraform.lock.hcl
+
+                    terraform init -input=false
+                    echo "✅ Terraform init complete."
+                '''
             }
         }
+    }
+}
 
         stage('Terraform Plan') {
             steps {
