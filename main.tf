@@ -1,6 +1,12 @@
-data "aws_subnets" "vpc_subnets" {
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
+provider "aws" {
+  region = "ap-south-1"
+}
+
+resource "aws_s3_bucket" "demo" {
+  bucket = var.bucket_name
+
+  tags = {
+    Name        = var.bucket_name
+    Environment = "demo"
   }
 }
