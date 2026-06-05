@@ -29,7 +29,7 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
-                    sh 'set -e && export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=$AWS_REGION && aws sts get-caller-identity && echo done'
+                    sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=$AWS_REGION && aws sts get-caller-identity && echo done'
                 }
             }
         }
@@ -54,7 +54,7 @@ pipeline {
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
                     dir('.') {
-                        sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=ap-south-1 && export TF_PLUGIN_CACHE_DIR=/var/lib/jenkins/.terraform.d/plugin-cache && mkdir -p /var/lib/jenkins/.terraform.d/plugin-cache && terraform init -input=false -upgrade && echo done'
+                        sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=ap-south-1 && export TF_PLUGIN_CACHE_DIR=/home/ubuntu/.terraform.d/plugin-cache && mkdir -p /home/ubuntu/.terraform.d/plugin-cache && terraform init -input=false -upgrade && echo done'
                     }
                 }
             }
