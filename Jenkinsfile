@@ -6,9 +6,10 @@ pipeline {
     }
 
     environment {
-        AWS_REGION      = 'ap-south-1'
-        TF_VERSION      = '1.9.5'
-        TF_WORKING_DIR  = '.'
+        AWS_REGION          = 'ap-south-1'
+        TF_VERSION          = '1.9.5'
+        TF_WORKING_DIR      = '.'
+        TF_PLUGIN_CACHE_DIR = '/var/lib/jenkins/.terraform.d/plugin-cache'
     }
 
     stages {
@@ -37,7 +38,7 @@ pipeline {
                         export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                         export AWS_DEFAULT_REGION=$AWS_REGION
                         aws sts get-caller-identity
-                        echo "✅ AWS authentication successful"
+                        echo "AWS authentication successful"
                     '''
                 }
             }
@@ -48,29 +49,28 @@ pipeline {
                 echo '⚙️ Checking Terraform installation...'
                 sh '''
                     if /usr/local/bin/terraform version 2>/dev/null | grep -q "v${TF_VERSION}"; then
-                        echo "✅ Terraform ${TF_VERSION} already installed. Skipping."
+                        echo "Terraform ${TF_VERSION} already installed. Skipping."
                     else
-                        echo "🔽 Installing Terraform ${TF_VERSION}..."
+                        echo "Installing Terraform ${TF_VERSION}..."
                         if command -v apt-get > /dev/null 2>&1; then
                             sudo apt-get update -y
                             sudo apt-get install -y curl unzip
                         elif command -v yum > /dev/null 2>&1; then
                             sudo yum install -y curl unzip
                         fi
-                        curl -fsSL \
-                            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
-                            -o /tmp/terraform.zip
+                        TFURL="https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+                        curl -fsSL "$TFURL" -o /tmp/terraform.zip
                         sudo unzip -o /tmp/terraform.zip -d /usr/local/bin/
                         sudo chmod +x /usr/local/bin/terraform
                         rm -f /tmp/terraform.zip
-                        echo "✅ Terraform installed."
+                        echo "Terraform installed."
                     fi
                     echo "Version: $(terraform version | head -1)"
                 '''
             }
         }
 
-       // stage('Terraform Init') {
+        stage('Terraform Init') {
             options {
                 timeout(time: 20, unit: 'MINUTES')
             }
@@ -88,14 +88,16 @@ pipeline {
                             export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                             export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                             export AWS_DEFAULT_REGION=$AWS_REGION
+                            export TF_PLUGIN_CACHE_DIR=$TF_PLUGIN_CACHE_DIR
+                            mkdir -p $TF_PLUGIN_CACHE_DIR
                             terraform init -input=false -upgrade
-                            echo "✅ Terraform init complete."
+                            echo "Terraform init complete."
                         '''
                     }
                 }
             }
         }
-\\
+
         stage('Terraform Plan') {
             steps {
                 echo '📋 Running Terraform plan...'
@@ -113,7 +115,7 @@ pipeline {
                             export AWS_DEFAULT_REGION=$AWS_REGION
                             terraform plan -input=false -out=tfplan
                             terraform show -no-color tfplan > plan_output.txt
-                            echo "✅ Plan saved to tfplan."
+                            echo "Plan saved to tfplan."
                         '''
                         stash includes: 'tfplan', name: 'tfplan'
                         archiveArtifacts artifacts: 'plan_output.txt', allowEmptyArchive: true
@@ -151,7 +153,7 @@ pipeline {
                             export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                             export AWS_DEFAULT_REGION=$AWS_REGION
                             terraform apply -input=false -auto-approve tfplan
-                            echo "🎉 Terraform apply complete."
+                            echo "Terraform apply complete."
                         '''
                     }
                 }
