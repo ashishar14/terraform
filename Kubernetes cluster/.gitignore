@@ -13,3 +13,5 @@ terraform.rc
 # Local IDE files
 .vscode/
 *.log
+#.terraform lock file
+.terraform.lock.hcl
