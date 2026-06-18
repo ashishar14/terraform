@@ -1,25 +1,22 @@
 pipeline {
-    agent any
+    agent { label 'jenkins_node' }
 
     triggers {
         githubPush()
     }
 
     environment {
-        AWS_REGION      = 'ap-south-1'        // ← change to your region
-        TF_VERSION      = '1.8.5'            // ← change to your Terraform version
-        TF_WORKING_DIR  = '.'                // ← path to .tf files (. = repo root)
-        TF_VAR_FILE     = 'terraform.tfvars' // ← your var file name
+        AWS_REGION          = 'ap-south-1'
+        TF_VERSION          = '1.9.5'
+        TF_WORKING_DIR      = '.'
+        TF_PLUGIN_CACHE_DIR = '/home/ubuntu/.terraform.d/plugin-cache'
     }
 
     stages {
 
         stage('Git Checkout') {
             steps {
-                echo '📥 Cloning repository...'
-                checkout scm
-                sh 'echo "Branch: $(git rev-parse --abbrev-ref HEAD)"'
-                sh 'echo "Commit: $(git rev-parse HEAD)"'
+                git branch: 'master', url: 'https://github.com/ashishar14/terraform.git'
             }
         }
 
@@ -32,37 +29,22 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
-                    sh '''
-                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                        export AWS_DEFAULT_REGION=$AWS_REGION
-                        aws sts get-caller-identity
-                        echo "✅ AWS authentication successful"
-                    '''
+                    sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=$AWS_REGION && aws sts get-caller-identity && echo done'
                 }
             }
         }
 
         stage('Terraform Installation') {
             steps {
-                echo '⚙️ Installing Terraform...'
-                sh '''
-                    if terraform version 2>/dev/null | grep -q "v${TF_VERSION}"; then
-                        echo "✅ Terraform ${TF_VERSION} already installed."
-                    else
-                        echo "Installing Terraform ${TF_VERSION}..."
-                        curl -fsSL -o /tmp/terraform.zip \
-                            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
-                        unzip -o /tmp/terraform.zip -d /usr/local/bin/
-                        chmod +x /usr/local/bin/terraform
-                        rm -f /tmp/terraform.zip
-                        echo "✅ Terraform $(terraform version | head -1) installed."
-                    fi
-                '''
+                echo '⚙️ Checking Terraform...'
+                sh '/usr/local/bin/terraform version | head -1'
             }
         }
 
         stage('Terraform Init') {
+            options {
+                timeout(time: 20, unit: 'MINUTES')
+            }
             steps {
                 echo '🚀 Initialising Terraform...'
                 withCredentials([[
@@ -71,13 +53,8 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform init -input=false
-                        '''
+                    dir('.') {
+                        sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=ap-south-1 && export TF_PLUGIN_CACHE_DIR=/home/ubuntu/.terraform.d/plugin-cache && mkdir -p /home/ubuntu/.terraform.d/plugin-cache && terraform init -input=false -upgrade && echo done'
                     }
                 }
             }
@@ -92,34 +69,19 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform plan \
-                                -input=false \
-                                -out=tfplan \
-                                -var-file="${TF_VAR_FILE}" 2>&1 | tee plan_output.txt
-                        '''
+                    dir('.') {
+                        sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=ap-south-1 && terraform plan -input=false -out=tfplan && terraform show -no-color tfplan > plan_output.txt && echo done'
+                        stash includes: 'tfplan', name: 'tfplan'
+                        archiveArtifacts artifacts: 'plan_output.txt', allowEmptyArchive: true
                     }
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'plan_output.txt', allowEmptyArchive: true
                 }
             }
         }
 
         stage('Manual Approval') {
             steps {
-                echo '⏸️ Waiting for manual approval...'
                 timeout(time: 30, unit: 'MINUTES') {
-                    input(
-                        message: 'Review the Terraform Plan. Approve to apply changes to AWS.',
-                        ok: 'Approve & Apply'
-                    )
+                    input message: 'Approve to apply changes to AWS.', ok: 'Approve & Apply'
                 }
             }
         }
@@ -133,14 +95,9 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
-                    dir("${TF_WORKING_DIR}") {
-                        sh '''
-                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                            export AWS_DEFAULT_REGION=$AWS_REGION
-                            terraform apply -input=false -auto-approve tfplan
-                            echo "🎉 Terraform apply complete."
-                        '''
+                    dir('.') {
+                        unstash 'tfplan'
+                        sh 'export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID && export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY && export AWS_DEFAULT_REGION=ap-south-1 && terraform apply -input=false -auto-approve tfplan && echo done'
                     }
                 }
             }
@@ -149,8 +106,8 @@ pipeline {
 
     post {
         success { echo '🟢 Pipeline finished successfully.' }
-        aborted { echo '🟡 Pipeline aborted — approval declined or timed out.' }
-        failure { echo '🔴 Pipeline failed. Check the logs.' }
+        aborted { echo '🟡 Pipeline aborted.' }
+        failure { echo '🔴 Pipeline failed.' }
         always  { cleanWs() }
     }
 }

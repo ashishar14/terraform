@@ -1,1 +1,0 @@
-bucket_name = "myarbucket1992-resource"
